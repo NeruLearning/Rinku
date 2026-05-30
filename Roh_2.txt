@@ -1,0 +1,5 @@
+bin: mathe
+Titel: Algebra
+Text:
+das ist ein neuer text. der tests den alten neuer
+XDXDXD
