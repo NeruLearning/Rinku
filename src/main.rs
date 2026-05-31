@@ -8,58 +8,47 @@ pub struct Block {
     pub speaker: String,
     pub timestamp: i64,
 }
-
-#[path = "../Long_time_memory/rohdatei_to_bin.rs"]
-mod rohdatei_to_bin;
+mod long_time_memory;
 
 #[tokio::main]
 async fn main() -> tantivy::Result<()> {
-    let input_path = std::env::args().nth(1).unwrap_or_else(|| {
-        if std::path::Path::new("Roh_2.txt").exists() {
-            "Roh_2.txt".to_string()
-        } else {
-            "dummy_rohtet_2.txt".to_string()
-        }
-    });
-
-    let raw = match std::fs::read_to_string(&input_path) {
-        Ok(text) => text,
-        Err(err) => {
-            eprintln!("failed to read {}: {}", input_path, err);
-            return Ok(());
-        }
-    };
-
     let mut schema_builder = Schema::builder();
-    let body_field = schema_builder.add_text_field("body", TEXT | STORED);
-    let speaker_field = schema_builder.add_text_field("speaker", TEXT | STORED);
+    let bin_field = schema_builder.add_text_field("bin", TEXT | STORED);
+    let titel_field = schema_builder.add_text_field("titel", TEXT | STORED);
     let offset_field = schema_builder.add_u64_field("offset", FAST | STORED);
-    let timestamp_field = schema_builder.add_i64_field("timestamp", FAST | STORED);
     let schema = schema_builder.build();
 
-    let index = Index::create_in_ram(schema);
+    let index_path = std::path::Path::new("./long_time_memory/index");
+    std::fs::create_dir_all(index_path).unwrap();
+    let index = if index_path.join("meta.json").exists() {
+        Index::open_in_dir(index_path)?
+    } else {
+        Index::create_in_dir(index_path, schema.clone())?
+    };
+
     let writer = Arc::new(Mutex::new(index.writer(50_000_000)?));
+    let index = Arc::new(index);
+    let index_clone = Arc::clone(&index);
 
     let (sender, receiver) = mpsc::channel(8);
 
-    let worker = tokio::spawn(long_time_memory::rohdatei_to_bin::thread_2(
-        receiver,
-        writer,
-        body_field,
-        speaker_field,
-        offset_field,
-        timestamp_field,
-    ));
+    tokio::join!(
+        long_time_memory::text_pipe::thread_1(sender),
+        long_time_memory::rohdatei_to_bin::thread_2(
+            receiver,
+            writer,
+            bin_field,
+            titel_field,
+            offset_field,
+        ),
+        long_time_memory::search_memory::thread_3(
+            index_clone,
+            bin_field,
+            titel_field,
+            offset_field,
+            schema
+        ),
+    );
 
-    let _ = sender
-        .send(Block {
-            text: raw,
-            speaker: "tester".to_string(),
-            timestamp: 0,
-        })
-        .await;
-    drop(sender);
-
-    let _ = worker.await;
     Ok(())
 }

@@ -1,4 +1,12 @@
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom, Write};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tantivy::{IndexWriter, doc, schema::Field};
 use tokio::sync::mpsc;
+
+use crate::Block;
 
 pub async fn thread_2(
     mut receiver: mpsc::Receiver<Block>, // Receiver for blocks of data or each stiring ??
@@ -65,16 +73,16 @@ pub async fn thread_2(
         cleaned
     }
 
-    fn split_label_value<'a>(line: &'a str, label: &str) -> Option<&'a str> {
-        let trimmed = line.trim_start();
-        if trimmed.len() < label.len() {
-            return None;
-        }
-        let (head, tail) = trimmed.split_at(label.len());
-        if head.eq_ignore_ascii_case(label) {
-            Some(tail)
-        } else {
-            None
+    // fn split_label_value<'a>(line: &'a str, label: &str) -> Option<&'a str> {
+    //     let trimmed = line.trim_start();
+    //     if trimmed.len() < label.len() {
+    //         return None;
+    //     }
+    //     let (head, tail) = trimmed.split_at(label.len());
+    //     if head.eq_ignore_ascii_case(label) {
+    //         Some(tail)
+    //     } else {
+    //         None
         }
     }
 
@@ -83,64 +91,64 @@ pub async fn thread_2(
         text: String,
     }
 
-    fn parse_sections(content: &str) -> Vec<Section> {
-        let mut sections = Vec::new();
-        let mut current_title: Option<String> = None;
-        let mut current_text = String::new();
+    // fn parse_sections(content: &str) -> Vec<Section> {
+    //     let mut sections = Vec::new();
+    //     let mut current_title: Option<String> = None;
+    //     let mut current_text = String::new();
 
-        for line in content.lines() {
-            if let Some(rest) = split_label_value(line, "Titel:") {
-                if let Some(title) = current_title.take() {
-                    sections.push(Section {
-                        title,
-                        text: current_text.trim_end().to_string(),
-                    });
-                }
-                current_title = Some(rest.trim().to_string());
-                current_text.clear();
-                continue;
-            }
+    //     for line in content.lines() {
+    //         if let Some(rest) = split_label_value(line, "Titel:") {
+    //             if let Some(title) = current_title.take() {
+    //                 sections.push(Section {
+    //                     title,
+    //                     text: current_text.trim_end().to_string(),
+    //                 });
+    //             }
+    //             current_title = Some(rest.trim().to_string());
+    //             current_text.clear();
+    //             continue;
+    //         }
 
-            if let Some(rest) = split_label_value(line, "Text:") {
-                let rest = rest.trim();
-                if !rest.is_empty() {
-                    current_text.push_str(rest);
-                    current_text.push('\n');
-                }
-                continue;
-            }
+        //     if let Some(rest) = split_label_value(line, "Text:") {
+        //         let rest = rest.trim();
+        //         if !rest.is_empty() {
+        //             current_text.push_str(rest);
+        //             current_text.push('\n');
+        //         }
+        //         continue;
+        //     }
 
-            if current_title.is_some() {
-                current_text.push_str(line);
-                current_text.push('\n');
-            }
-        }
+        //     if current_title.is_some() {
+        //         current_text.push_str(line);
+        //         current_text.push('\n');
+        //     }
+        // }
 
-        if let Some(title) = current_title.take() {
-            sections.push(Section {
-                title,
-                text: current_text.trim_end().to_string(),
-            });
-        }
+    //     if let Some(title) = current_title.take() {
+    //         sections.push(Section {
+    //             title,
+    //             text: current_text.trim_end().to_string(),
+    //         });
+    //     }
 
-        sections
-    }
+    //     sections
+    // }
 
-    fn build_sections(sections: &[Section]) -> String {
-        let mut out = String::new();
-        for (idx, section) in sections.iter().enumerate() {
-            if idx > 0 {
-                out.push('\n');
-            }
-            out.push_str("Titel: ");
-            out.push_str(section.title.trim());
-            out.push('\n');
-            out.push_str("Text:\n");
-            out.push_str(section.text.trim_end());
-            out.push('\n');
-        }
-        out
-    }
+    // fn build_sections(sections: &[Section]) -> String {
+    //     let mut out = String::new();
+    //     for (idx, section) in sections.iter().enumerate() {
+    //         if idx > 0 {
+    //             out.push('\n');
+    //         }
+    //         out.push_str("Titel: ");
+    //         out.push_str(section.title.trim());
+    //         out.push('\n');
+    //         out.push_str("Text:\n");
+    //         out.push_str(section.text.trim_end());
+    //         out.push('\n');
+    //     }
+    //     out
+    // }
 
     fn upsert_section_content(content: &str, title: &str, text: &str) -> String {
         let title = title.trim();
@@ -215,7 +223,7 @@ pub async fn thread_2(
     let mut data_file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("path to data.bin") // -> path file felxible machen
+        .open("./data.bin") // -> path file felxible machen
         .unwrap();
 
     while let Some(block) = receiver.recv().await {
@@ -232,6 +240,7 @@ pub async fn thread_2(
         data_file.write_all(&length.to_le_bytes()).unwrap();
         data_file.write_all(text_bytes).unwrap();
         data_file.flush().unwrap();
+        data_file.sync_all().unwrap();
 
         {
             let mut w = writer.lock().unwrap();
@@ -239,7 +248,7 @@ pub async fn thread_2(
             offset_field => offset,
             body_field => block.text.clone(),
             speaker_field => block.speaker.clone(),
-            timestamp_field => block.timestamp,
+            timestamp_field => block.timestamp as i64,
             ))
             .unwrap();
             w.commit().unwrap();

@@ -1,16 +1,15 @@
-[workspace]
-members = [".", "Long_time_memory"]
-
 [package]
 name = "AI_Bot"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.44"
 tantivy = "0.22"
 tokio = { version = "1", features = [
     "macros",
     "rt-multi-thread",
     "sync",
     "time",
+    "full",
 ] }
