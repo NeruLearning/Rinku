@@ -9,7 +9,7 @@
 //     pub timestamp: i64,
 // }
 // mod long_time_memory;
-mod whisper;
+mod whisper_files;
 
 // #[tokio::main]
 // async fn main() -> tantivy::Result<()> {
@@ -54,5 +54,5 @@ fn main() {
 
     // Ok(())
 
-    whisper::run();
+    whisper_files::whisper::run();
 }

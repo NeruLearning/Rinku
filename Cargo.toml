@@ -18,4 +18,4 @@ cpal = "0.15"
 
 [[bin]]
 name = "whisper"
-path = "src/whisper.rs"
+path = "src/whisper_files/whisper.rs"

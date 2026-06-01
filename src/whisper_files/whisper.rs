@@ -221,7 +221,7 @@ pub fn run() {
         "Mikrofon: {}",
         device.name().unwrap_or("unbekannt".to_string())
     );
-    let model_path = "ggml-large-v3.bin";
+    let model_path = "whisper_files\\ggml-large-v3.bin";
 
     // Modus abfragen
     print!("Modus (1 = Push-to-Talk, 3 = Dauerhaft): ");
