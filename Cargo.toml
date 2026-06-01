@@ -13,3 +13,9 @@ tokio = { version = "1", features = [
     "time",
     "full",
 ] }
+whisper-rs = { version = "0.16", features = ["cuda"] }
+cpal = "0.15"
+
+[[bin]]
+name = "whisper"
+path = "src/whisper.rs"

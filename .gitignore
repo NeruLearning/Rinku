@@ -1,1 +1,11 @@
 /target
+/long_time_memory
+
+ggml-small.bin
+ggml-medium.bin
+ggml-large.bin
+ggml-base.bin
+*.bin
+
+cargo.lock
+cargo.toml

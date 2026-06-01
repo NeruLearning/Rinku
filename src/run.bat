@@ -1,13 +1,9 @@
 
 @echo off
  
-echo === Erstelle data.bin ===
-type nul > data.bin
-echo data.bin erstellt
- 
 echo.
 echo === Starte cargo run ===
-cargo run
+cargo run --bin AI_Bot 2>$null
  
 pause
  
