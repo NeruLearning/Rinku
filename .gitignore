@@ -9,6 +9,7 @@ ggml-base.bin
 
 cargo.lock
 cargo.toml
+pyton.py
 
 *.txt
 src/\$null
