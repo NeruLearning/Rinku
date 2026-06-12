@@ -9,3 +9,6 @@ ggml-base.bin
 
 cargo.lock
 cargo.toml
+
+*.txt
+src/\$null

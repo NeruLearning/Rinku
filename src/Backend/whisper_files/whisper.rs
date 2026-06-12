@@ -6,7 +6,7 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 fn transcribe_chunk(ctx: &WhisperContext, audio: &[f32]) -> Option<String> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("de"));
+    params.set_language(Some("en"));
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
@@ -61,8 +61,8 @@ fn save_to_file(text: &str) {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("transkript.txt")
-        .expect("Konnte transkript.txt nicht öffnen");
+        .open("transkript2.txt")
+        .expect("Konnte transkript2.txt nicht öffnen");
     writeln!(file, "{}", text).expect("Schreiben fehlgeschlagen");
 }
 
@@ -124,8 +124,8 @@ fn live_loop(
     sample_rate: u32,
     stop_signal: Arc<Mutex<bool>>,
 ) {
-    // Mindestens 4 Sekunden Audio für sinnvolle Transkription
-    let min_samples = (sample_rate * 4) as usize;
+    // Mindestens 5 Sekunden Audio für sinnvolle Transkription
+    let min_samples = (sample_rate * 5) as usize;
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -221,7 +221,7 @@ pub fn run() {
         "Mikrofon: {}",
         device.name().unwrap_or("unbekannt".to_string())
     );
-    let model_path = "whisper_files\\ggml-large-v3.bin";
+    let model_path = "whisper_files\\ggml-large-v3-turbo-q8_0.bin";
 
     // Modus abfragen
     print!("Modus (1 = Push-to-Talk, 3 = Dauerhaft): ");
@@ -241,3 +241,4 @@ pub fn run() {
         _ => eprintln!("Unbekannter Modus: {}. Bitte 1 oder 3 eingeben.", modus),
     }
 }
+fn main() {}
