@@ -35,7 +35,6 @@ model = WhisperModel(config["whisper_model"], device="cuda", compute_type="float
 audio = pyaudio.PyAudio()
 
 def whisper_stream_process(audio_buffer: bytes) -> tuple[str, bool]:
-    import numpy as np
     
     audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
     
@@ -48,9 +47,7 @@ def whisper_stream_process(audio_buffer: bytes) -> tuple[str, bool]:
     return text, is_final
 
 
-def whisper_transcribe_complete(audio_buffer: bytes) -> str:
-    import numpy as np
-    
+def whisper_transcribe_complete(audio_buffer: bytes) -> str:  
     audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
     
     segments, _ = model.transcribe(audio_np, language=language)

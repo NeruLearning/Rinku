@@ -13,3 +13,9 @@ pyton.py
 
 *.txt
 src/\$null
+
+config.json
+Cargo.*
+*.md
+
+__pycache__/
