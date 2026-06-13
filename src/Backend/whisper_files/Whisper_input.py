@@ -12,6 +12,10 @@ import json
 from silero_vad import load_silero_vad, get_speech_timestamps
 import numpy as np
 
+with open("config.json", "r", encoding="utf-8") as f:
+    config = json.load(f)
+
+
 vad_model, _ = load_silero_vad()
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
@@ -19,40 +23,32 @@ CHANNELS = 1
 RATE = 16000
 
 
-
-with open("config.json", "r", encoding="utf-8") as f:
-    config = json.load(f)
-
 language = config["language"]
 together_api_key = config["together_api_key"]
 prompt_template = config["prompt"]
 
 
-
-
-
 model = WhisperModel(config["whisper_model"], device="cuda", compute_type="float16")
 audio = pyaudio.PyAudio()
 
+
+
+
+
 def whisper_stream_process(audio_buffer: bytes) -> tuple[str, bool]:
-    
     audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
-    
     segments, _ = model.transcribe(audio_np, language=language)
-    
     text = " ".join([s.text for s in segments]).strip()
-    
     is_final = any(text.endswith(p) for p in [".", "!", "?", "..."])
-    
     return text, is_final
 
 
 def whisper_transcribe_complete(audio_buffer: bytes) -> str:  
     audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
-    
     segments, _ = model.transcribe(audio_np, language=language)
-    
     return " ".join([s.text for s in segments]).strip()
+
+
 
 def is_speech(audio_buffer: bytes) -> bool:
     audio_np = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
@@ -61,6 +57,8 @@ def is_speech(audio_buffer: bytes) -> bool:
     timestamps = get_speech_timestamps(audio_tensor, vad_model, sampling_rate=RATE)
     
     return len(timestamps) > 0
+
+
 
 def get_device_index() -> int:
     for i in range(audio.get_device_count()):
@@ -231,6 +229,11 @@ def whisper_worker(p: dict):
 def local_4bit_trigger_worker(p: dict):
     while True:
         incoming_tokens = p["token_stream_queue"].get()
+        
+        if not incoming_tokens.strip():
+            continue
+        
+        current_sentence = p["short_term_memory"][0]["text"]
 
         context_for_model = {
             "speaker":    p["speaker"],
@@ -239,7 +242,8 @@ def local_4bit_trigger_worker(p: dict):
             # [1..9] = fertige Sätze, neueste zuerst
         }
 
-        decision = local_4bit_eval(context_for_model)
+
+        decision = local_4bit_eval(current_sentence, p["llm_instance"])
 
         if decision == "1" and not p["interrupt_triggered"]:
             p["interrupt_triggered"] = True
