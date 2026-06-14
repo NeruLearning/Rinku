@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package llm;
+
+service LLMService {
+  // Rust sendet einen Prompt und kriegt einen direkten Stream von Tokens zurück
+  rpc StreamInference (InferenceRequest) returns (stream TokenResponse);
+}
+
+message InferenceRequest {
+  string prompt = 1;
+}
+
+message TokenResponse {
+  string token = 1;
+}

@@ -22,10 +22,13 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000
 
+stm_context = zmq.Context()
+stm_socket = stm_context.socket(zmq.PUSH)
+stm_socket.connect(f"tcp://localhost:{config['zmq_ports']['STM']}")
 
 language = config["language"]
-together_api_key = config["together_api_key"]
-prompt_template = config["prompt"]
+# together_api_key = config["together_api_key"]
+# prompt_template = config["prompt"]
 
 
 model = WhisperModel(config["whisper_model"], device="cuda", compute_type="float16")
@@ -130,9 +133,9 @@ def create_pipeline(source: str, speaker: str, zqm_port: int) -> dict:
 # =====================================================================
 # PIPELINES — einfach neue Zeile für neuen Kanal
 # =====================================================================
-pipeline_mic    = create_pipeline(source="mic",    speaker="streamer", zqm_port=5555)
-pipeline_device = create_pipeline(source="device", speaker="device", zqm_port=5557)
-
+pipeline_mic    = create_pipeline(source="mic",    speaker="streamer", zqm_port=config["zmq_ports"]["mic"])
+pipeline_device = create_pipeline(source="device", speaker="device", zqm_port=config["zmq_ports"]["device"])
+pipeline_STM = create_pipeline(source="STM", speaker="device", zqm_port=config["zmq_ports"]["STM"])
 
 # =====================================================================
 # THREAD 1: Audio-Eingang
@@ -249,6 +252,16 @@ def local_4bit_trigger_worker(p: dict):
             p["interrupt_triggered"] = True
 
             memory_snapshot = list(p["short_term_memory"])
+            stm_payload = {
+                    "source": p["source"],
+                    "speaker": p["speaker"],
+                    "timestamp": int(time.time() * 1000),
+                    "short_term_memory": memory_snapshot
+                }
+            try:
+                stm_socket.send_json(stm_payload)
+            except Exception as e:
+                print(f"Fehler beim Senden an STM-ZMQ: {e}")
             threading.Thread(
                 target=execute_together_ai_roast,
                 args=(p, memory_snapshot),
@@ -268,23 +281,23 @@ def call_together_ai_api(memory_snapshot: list) -> str:
     ]
     context_block = "\n".join(context_lines) if context_lines else "kein Kontext"
 
-    prompt = config["prompt"].format(
-    trigger=trigger,
-    context=context_block
-)
+#     prompt = config["prompt"].format(
+#     trigger=trigger,
+#     context=context_block
+# )
 
 # --- API-Aufruf --- muss API KEYS und URL anpassen, damit es funktioniert --- 
 # WICHTIG 
-    response = requests.post(
-        "https://api.together.xyz/v1/chat/completions",
-        headers={"Authorization": f"Bearer {together_api_key}"},
-        json={
-            "model": config["together_model"],
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 100,
-        }
-    )
-    return response.json()["choices"][0]["message"]["content"].strip()
+    # response = requests.post(
+    #     "https://api.together.xyz/v1/chat/completions",
+    #     headers={"Authorization": f"Bearer {together_api_key}"},
+    #     json={
+    #         "model": config["together_model"],
+    #         "messages": [{"role": "user", "content": prompt}],
+    #         "max_tokens": 100,
+    #     }
+    # )
+    # return response.json()["choices"][0]["message"]["content"].strip()
 
 def execute_together_ai_roast(p: dict, memory_snapshot: list):
     # Snapshot: Index [0] kann unvollständiger Halbsatz sein → gewollt
