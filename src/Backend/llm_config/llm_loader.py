@@ -43,11 +43,7 @@ import copy
 
 # Diese Dateien generieren wir im nächsten Schritt, sie steuern die C-Verbindung
 import llm_service_pb2
-import llm_service_pb2_grpc
-
-
-BLACKLISTED_WORDS = config["blacklisted_words"]
-  
+import llm_service_pb2_grpc  
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 main_project_dir = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -58,6 +54,9 @@ with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
 
 model_path = config["Main_model"]
+BLACKLISTED_WORDS = config["blacklisted_words"]
+SYSTEM_PROMPT = config["prompt"]
+print("Berechne globalen System-Prompt-Cache im VRAM...")
 
 print("Loading model onto 5080...")
 tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -66,13 +65,9 @@ model = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16,
     device_map="auto",
 )
-logits_filter = StopOnBadWords(tokenizer, BLACKLISTED_WORDS)
-global_logits_processor = LogitsProcessorList([logits_filter])
 
 
 
-SYSTEM_PROMPT = config["prompt"]
-print("Berechne globalen System-Prompt-Cache im VRAM...")
 
 system_templated = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
 system_inputs = tokenizer(system_templated, return_tensors="pt").to("cuda")
@@ -132,7 +127,7 @@ class StopOnBadWords(LogitsProcessor):
                 # --- STRATEGIE 2: Levenshtein-Ähnlichkeit (Leetspeak / Typos) ---
                 # Wir prüfen nur Tokens, die eine ähnliche Länge wie das Zielwort haben (+/- 2 Zeichen)
                 if abs(len(token_clean) - len(word_clean)) <= 2:
-                    distanz = schnelle_levenshtein(token_clean, word_clean)
+                    distanz = levenshtein_distanz(token_clean, word_clean)
                     
                     # Distanz von <= 2 bedeutet: Maximal 2 Buchstaben getauscht/hinzugefügt
                     # Findet automatisch: "n1gger" (Distanz 1 zu "nigger") oder "holokoust" (Distanz 1)
@@ -152,8 +147,8 @@ class StopOnBadWords(LogitsProcessor):
         return scores
 
 
-
-
+logits_filter = StopOnBadWords(tokenizer, BLACKLISTED_WORDS)
+global_logits_processor = LogitsProcessorList([logits_filter])
 
 
 # Der C-Streamer: Holt das Token aus CUDA und schießt es direkt in den gRPC-Kanal zu Rust
