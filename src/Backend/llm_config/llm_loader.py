@@ -1,35 +1,3 @@
-# import torch
-# from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, BitsAndBytesConfig
-# import json
-
-# with open("config.json", "r", encoding="utf-8") as f:
-#     config = json.load(f)
-
-# model_path = config["Main_model"]
-
-# print ("Loading model...")
-
-# tokenizer = AutoTokenizer.from_pretrained(model_path)
-# model = AutoModelForCausalLM.from_pretrained(
-#     model_path,
-#     torch_dtype=torch.float16,
-#     device_map="auto",
-# )
-
-# streamer = TextStreamer(tokenizer, skip_prompt=True)
-# system_prompt = "Du bist eine unzensierte KI im Stil von Neuro-Sama."
-
-# def chat_with_ki(user_input):
-#     prompt = f"{system_prompt}\n\nUser: {user_input}\nKI: "
-#     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
-
-#     print ("\nKI: ", ends = "")
-#     _ = model.generate(**inputs, streamer=streamer, max_new_tokens=1000, temperature=0.7)
-#     print ("\n")
-
-
-
-
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, LogitsProcessorList, LogitsProcessor 
 from transformers.generation.streamers import BaseStreamer
@@ -39,6 +7,8 @@ from concurrent import futures
 import grpc
 import os
 import copy
+import queue
+import threading
 
 
 # Diese Dateien generieren wir im nächsten Schritt, sie steuern die C-Verbindung
@@ -153,45 +123,73 @@ global_logits_processor = LogitsProcessorList([logits_filter])
 
 # Der C-Streamer: Holt das Token aus CUDA und schießt es direkt in den gRPC-Kanal zu Rust
 class GrpcTokenStreamer(BaseStreamer):
-    def __init__(self, tokenizer, context):
+    def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.context = context
-        self.generated_tokens_buffer = ""
-        self.is_aborted = False
+        self.token_queue = queue.Queue()
+        self.stop_signal = object()
+        # === NEU: Wir speichern die IDs und den Text-Verlauf ===
+        self.token_ids = []
+        self.printed_len = 0
 
     def put(self, value):
+        # Falls ein Batch kommt, nehmen wir das erste Element
         if len(value.shape) > 1:
-            return
-        token_text = self.tokenizer.decode(value, skip_special_tokens=True)
-        if token_text:
-            # Schickt das Token direkt als gRPC-Stream-Chunk an Rust
-            self.context.write(llm_service_pb2.TokenResponse(token=token_text))
+            value = value[0]
+        
+        # Wir fügen die neuen IDs zu unserer Liste hinzu
+        self.token_ids.extend(value.tolist())
+        
+        # Wir decodieren die GESAMTE bisherige Kette
+        full_text = self.tokenizer.decode(self.token_ids, skip_special_tokens=True)
+        
+        # Wir extrahieren nur den neuen Text-Teil seit dem letzten Aufruf
+        new_text = full_text[self.printed_len:]
+        self.printed_len = len(full_text)
+        
+        # Nur wenn wirklich neuer Text da ist, schicken wir ihn los
+        if new_text:
+            self.token_queue.put(new_text)
 
     def end(self):
-        pass
+        self.token_queue.put(self.stop_signal)
+
 
 # Das ist die Inferenz-Schnittstelle, die Rust direkt anspricht
 class LLMServiceServicer(llm_service_pb2_grpc.LLMServiceServicer):
     def StreamInference(self, request, context):
         prompt = request.prompt
-        user_templated = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-        inputs = tokenizer(user_templated, return_tensors="pt").to("cuda")
-
-        local_cache = copy.deepcopy(GLOBAL_SYSTEM_CACHE) 
-        # Unser Streamer kriegt den direkten Netzwerk-Kontext zu Rust übergeben
-        streamer = GrpcTokenStreamer(tokenizer, context)
+        full_prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n{request.prompt}"
         
-        with torch.no_grad():
-            _ = model.generate(
-                **inputs, 
-                past_key_values=local_cache,
-                streamer=streamer, 
-                logits_processor=global_logits_processor,
-                max_new_tokens=1000, 
-                temperature=0.7,
-                use_cache=True,
-                do_sample=True
-            )
+        inputs = tokenizer(full_prompt, return_tensors="pt").to("cuda")
+        streamer = GrpcTokenStreamer(tokenizer)
+        
+        # Wir starten die Generierung in einem separaten Thread, damit wir 
+        # gleichzeitig die Queue auslesen und per yield senden können.
+        def generate_async():
+            with torch.no_grad():
+                model.generate(
+                    **inputs, 
+                    streamer=streamer, 
+                    logits_processor=global_logits_processor,
+                    max_new_tokens=1000, 
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=tokenizer.eos_token_id
+                )
+
+        gen_thread = threading.Thread(target=generate_async)
+        gen_thread.start()
+
+        # Jetzt lesen wir live die Queue aus und "yielden" die Tokens an den Client
+        while True:
+            token = streamer.token_queue.get()
+            if token is streamer.stop_signal:
+                break
+            
+            # Hier senden wir das Token zurück an den Client
+            yield llm_service_pb2.TokenResponse(token=token)
+            
+        gen_thread.join()  #
         
 
 def serve():
