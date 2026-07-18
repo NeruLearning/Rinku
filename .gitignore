@@ -20,3 +20,7 @@ Cargo.*
 
 client_test.py
 __pycache__/
+.lnx_venv
+venv
+*.json
+*.rdb
